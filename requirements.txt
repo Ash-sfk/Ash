@@ -1,7 +1,8 @@
 pyrogram>=2.0.0
 gTTS>=2.3.2
 google-generativeai>=0.3.0
-elevenlabs==0.2.3  # ← Lock to v0.2.3 (old syntax)
+elevenlabs>=1.0.0  # Use latest stable version
 requests>=2.31.0
 pytube>=15.0.0
-TgCrypto>=1.2.2  # Optional (for Pyrogram speed)
+pydantic>=2.0.0  # Explicitly require newer Pydantic
+TgCrypto>=1.2.2  # Optional for speed
