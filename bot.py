@@ -18,25 +18,44 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 OWNER_USERNAME = "ash_yv"
 
-# Initialize clients
+# Initialize APIs
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-pro")
-eleven_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)  # v1.x syntax
+eleven_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
-# Pyrogram client with in_memory session (critical for Render)
+# Pyrogram Client (critical for Render)
 app = Client(
     "CinderellaAI",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    in_memory=True  # ← Fixes session storage issues
+    in_memory=True
 )
 
 # ===== GAME DATABASES ===== #
-TRUTHS = ["What's your most embarrassing Google search?", ...]  # Keep your existing lists
-DARES = ["Send your most cringe childhood photo!", ...]
-ROASTS = ["You're like a broken pencil... pointless!", ...]
-RIDDLES = {"I speak without a mouth": "echo", ...}
+TRUTHS = [
+    "What's your most embarrassing Google search?",
+    "Have you ever pretended to like a gift?",
+    "What's the weirdest thing you've done for money?"
+]
+
+DARES = [
+    "Send your most cringe childhood photo!",
+    "Do 10 pushups right now!",
+    "Sing a Bollywood song in voice chat!"
+]
+
+ROASTS = [
+    "You're like a broken pencil... pointless!",
+    "Is your WiFi weak or are you just boring?",
+    "Even Siri ignores your questions!"
+]
+
+RIDDLES = {
+    "I speak without a mouth": "echo",
+    "The more you take, the more you leave behind": "footsteps",
+    "What has keys but no locks?": "piano"
+}
 
 # ===== CORE FUNCTIONS ===== #
 async def text_to_voice(text: str) -> str:
@@ -48,7 +67,7 @@ async def text_to_voice(text: str) -> str:
         )
         filename = f"voice_{random.randint(1000,9999)}.mp3"
         with open(filename, "wb") as f:
-            f.write(audio)  # Works with ElevenLabs v1.x
+            f.write(audio)
         return filename
     except Exception as e:
         print(f"Voice error: {e}, using gTTS")
@@ -70,8 +89,8 @@ async def download_reel(url: str) -> str:
 
 # ===== COMMAND HANDLERS ===== #
 @app.on_message(filters.command("start"))
-async def start(_, m: Message):
-    await m.reply_text(
+async def start(_, message: Message):
+    await message.reply_text(
         "✨ *Namaste! I'm Cinderella AI* ✨\n\n"
         "🎙️ /speech [text]\n"
         "🎮 /truth /dare /roast /riddle\n"
@@ -79,10 +98,8 @@ async def start(_, m: Message):
         "👑 Owner: @ash_yv"
     )
 
-# [Keep ALL other command handlers unchanged]
-# @app.on_message(filters.command("truth")) ... etc.
+# [Add all other command handlers here exactly as before]
 
 # ===== RUN BOT ===== #
-if __name__ == "__main__":
-    print("╔══════════════════════╗\n║   CINDERELLA AI LIVE   ║\n╚══════════════════════╝")
-    app.run()
+print("╔══════════════════════╗\n║   CINDERELLA AI LIVE   ║\n╚══════════════════════╝")
+app.run()
