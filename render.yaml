@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: cinderella-bot
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+    startCommand: |
+      python bot.py
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.6
+      - key: API_ID
+        value: 24694023
+      - key: API_HASH
+        value: "5577696a88c6b197fdbdf299a396aa63"
+      - key: BOT_TOKEN
+        value: "8070710114:AAHnXSR_4BFBzVzY_TRUm0gauXLsr4DhPok"
+      - key: GEMINI_API_KEY
+        value: "AIzaSyDFhYXGeuzzq5oBvcibvSnxvceGLAast6E"
+      - key: ELEVENLABS_API_KEY
+        value: "sk_6f6ec9f515e7e91e5108271f3e38b4361fcc0bcbf36c2792"
+      - key: OWNER_USERNAME
+        value: "ash_yv"
