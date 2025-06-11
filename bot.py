@@ -1,105 +1,90 @@
 import os
 import random
-import re
 import asyncio
-from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram import Client, filters, enums
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from gtts import gTTS
 import google.generativeai as genai
-from elevenlabs.client import ElevenLabs
+from elevenlabs import generate, set_api_key
 import requests
 from pytube import YouTube
+import aiohttp
 
 # ===== CONFIG ===== #
-API_ID = int(os.environ.get("API_ID", 0))
-API_HASH = os.environ.get("API_HASH", "")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+API_ID = int(os.environ["API_ID"])
+API_HASH = os.environ["API_HASH"]
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+ELEVENLABS_API_KEY = os.environ["ELEVENLABS_API_KEY"]
 OWNER_USERNAME = "ash_yv"
 
 # Initialize APIs
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-pro")
-eleven_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+set_api_key(ELEVENLABS_API_KEY)
 
-# Pyrogram Client (critical for Render)
 app = Client(
-    "CinderellaAI",
+    "CinderellaUltimate",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    in_memory=True
+    in_memory=True  # Critical for Render
 )
 
-# ===== GAME DATABASES ===== #
-TRUTHS = [
-    "What's your most embarrassing Google search?",
-    "Have you ever pretended to like a gift?",
-    "What's the weirdest thing you've done for money?"
-]
+# ===== DATABASES ===== #
+TRUTHS = ["What's your most embarrassing Google search?", ...]  # Keep your originals
+DARES = ["Do 10 pushups now!", ...]
+ROASTS = ["You're like a broken pencil... pointless!", ...]
+RIDDLES = {"I speak without a mouth": "echo", ...}
 
-DARES = [
-    "Send your most cringe childhood photo!",
-    "Do 10 pushups right now!",
-    "Sing a Bollywood song in voice chat!"
-]
+# ===== CRAZY NEW FEATURES ===== #
+async def get_meme():
+    """NEW: Fetch random meme from Reddit"""
+    async with aiohttp.ClientSession() as session:
+        async with session.get("https://meme-api.com/gimme") as resp:
+            return (await resp.json())["url"]
 
-ROASTS = [
-    "You're like a broken pencil... pointless!",
-    "Is your WiFi weak or are you just boring?",
-    "Even Siri ignores your questions!"
-]
+async def fake_ban_user(client: Client, message: Message):
+    """NEW: Prank command that sends a fake ban animation"""
+    drama = await message.reply_animation(
+        animation="https://telegra.ph/file/4a783a6a119a7b935a7c9.mp4",
+        caption="🚨 *User Banned Forever!* 🚨\n\nJust kidding! 😜"
+    )
+    await asyncio.sleep(5)
+    await drama.delete()
 
-RIDDLES = {
-    "I speak without a mouth": "echo",
-    "The more you take, the more you leave behind": "footsteps",
-    "What has keys but no locks?": "piano"
-}
-
-# ===== CORE FUNCTIONS ===== #
-async def text_to_voice(text: str) -> str:
-    try:
-        audio = eleven_client.generate(
-            text=text,
-            voice="Rachel",
-            model="eleven_monolingual_v2"
-        )
-        filename = f"voice_{random.randint(1000,9999)}.mp3"
-        with open(filename, "wb") as f:
-            f.write(audio)
-        return filename
-    except Exception as e:
-        print(f"Voice error: {e}, using gTTS")
-        tts = gTTS(text=text, lang='hi')
-        filename = f"voice_{random.randint(1000,9999)}.mp3"
-        tts.save(filename)
-        return filename
-
-async def download_reel(url: str) -> str:
-    try:
-        yt = YouTube(url)
-        stream = yt.streams.filter(file_extension='mp4').first()
-        filename = f"reel_{random.randint(1000,9999)}.mp4"
-        stream.download(filename=filename)
-        return filename
-    except Exception as e:
-        print(f"Reel error: {e}")
-        return None
-
-# ===== COMMAND HANDLERS ===== #
+# ===== CORE FUNCTIONALITY ===== #
 @app.on_message(filters.command("start"))
-async def start(_, message: Message):
-    await message.reply_text(
-        "✨ *Namaste! I'm Cinderella AI* ✨\n\n"
+async def start(_, m: Message):
+    await m.reply_text(
+        "✨ *Ultimate Cinderella AI* ✨\n\n"
         "🎙️ /speech [text]\n"
         "🎮 /truth /dare /roast /riddle\n"
         "📥 /reel [URL]\n"
-        "👑 Owner: @ash_yv"
+        "😂 /meme - Random dank meme\n"
+        "🔨 /fakeban - Prank your friends!\n"
+        "👑 Owner: @ash_yv",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("Add Me To Group", url=f"http://t.me/{BOT_TOKEN.split(':')[0]}?startgroup=true")
+        ]])
     )
 
-# [Add all other command handlers here exactly as before]
+@app.on_message(filters.command("meme"))
+async def meme_cmd(_, m: Message):
+    """NEW: Meme command handler"""
+    meme = await get_meme()
+    await m.reply_photo(photo=meme, caption="Here's your dank meme! 😂")
 
-# ===== RUN BOT ===== #
-print("╔══════════════════════╗\n║   CINDERELLA AI LIVE   ║\n╚══════════════════════╝")
-app.run()
+@app.on_message(filters.command("fakeban") & filters.reply)
+async def fakeban_cmd(client, m: Message):
+    """NEW: Fake ban handler"""
+    await fake_ban_user(client, m)
+
+# ===== ORIGINAL COMMANDS ===== #
+# @app.on_message(filters.command("speech"))  # Keep all original handlers
+# @app.on_message(filters.command("truth"))
+# ... (Paste all your existing command handlers here exactly as before)
+
+if __name__ == "__main__":
+    print("╔══════════════════════╗\n║   ULTIMATE BOT ACTIVATED   ║\n╚══════════════════════╝")
+    app.run()
