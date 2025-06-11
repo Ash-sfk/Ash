@@ -5,97 +5,100 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from gtts import gTTS
 import google.generativeai as genai
-from elevenlabs import generate, set_api_key
+from elevenlabs import set_api_key, generate as eleven_generate
+import requests
 from pytube import YouTube
-import aiohttp
 
 # ===== CONFIG ===== #
-API_ID = int(os.environ["API_ID"])
-API_HASH = os.environ["API_HASH"]
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-GEMINI_KEY = os.environ["GEMINI_API_KEY"]
-ELEVENLABS_KEY = os.environ["ELEVENLABS_API_KEY"]
-OWNER = "ash_yv"
+API_ID = int(os.getenv("API_ID", "24694023"))
+API_HASH = os.getenv("API_HASH", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
+OWNER_USERNAME = os.getenv("OWNER_USERNAME", "ash_yv")
 
-# Initialize APIs
-genai.configure(api_key=GEMINI_KEY)
+# ===== DATABASES ===== #
+TRUTHS = [...]
+DARES = [...]
+ROASTS = [...]
+RIDDLES = {
+    "I speak without a mouth": "echo",
+    "The more you take, the more you leave behind": "footsteps",
+}
+
+# ===== INIT ===== #
+genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-pro")
-set_api_key(ELEVENLABS_KEY)
+set_api_key(ELEVENLABS_API_KEY)
+app = Client("CinderellaAI", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-app = Client(
-    "CinderellaUltimate",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
-    in_memory=True
-)
-
-# ===== GAME DATABASES ===== #
-TRUTHS = ["What's your most embarrassing Google search?"]  # Add more
-DARES = ["Do 10 pushups now!"]
-ROASTS = ["You're like a broken pencil!"]
-RIDDLES = {"I speak without a mouth": "echo"}
-
-# ===== CORE FUNCTIONS ===== #
-async def text_to_voice(text: str):
+# ===== FUNCTIONS ===== #
+async def text_to_voice(text: str) -> str:
     try:
-        audio = generate(text=text, voice="Rachel", model="eleven_monolingual_v2")
+        audio = eleven_generate(
+            text=text,
+            voice="Rachel",
+            model="eleven_monolingual_v2"
+        )
         filename = f"voice_{random.randint(1000,9999)}.mp3"
         with open(filename, "wb") as f:
             f.write(audio)
         return filename
     except Exception as e:
-        print(f"Voice error: {e}")
         tts = gTTS(text=text, lang='hi')
         filename = f"voice_{random.randint(1000,9999)}.mp3"
         tts.save(filename)
         return filename
 
-async def download_reel(url: str):
+async def generate_response(prompt: str) -> str:
+    try:
+        resp = model.generate_content(
+            "Respond as 'Cinderella AI' … "
+            f"User asked: {prompt}"
+        )
+        return resp.text or "Oops! 🪄"
+    except Exception as e:
+        return f"Error: {e}"
+
+async def download_reel(url: str) -> str | None:
     try:
         yt = YouTube(url)
         stream = yt.streams.filter(file_extension='mp4').first()
-        filename = f"reel_{random.randint(1000,9999)}.mp4"
-        stream.download(filename=filename)
-        return filename
-    except Exception as e:
-        print(f"Reel error: {e}")
+        fn = f"reel_{random.randint(1000,9999)}.mp4"
+        stream.download(filename=fn)
+        return fn
+    except Exception:
         return None
 
-async def get_meme():
-    async with aiohttp.ClientSession() as session:
-        async with session.get("https://meme-api.com/gimme") as resp:
-            return (await resp.json())["url"]
-
-# ===== COMMAND HANDLERS ===== #
+# ===== HANDLERS ===== #
 @app.on_message(filters.command("start"))
-async def start(_, m: Message):
-    await m.reply_text(
-        "✨ *Ultimate Cinderella AI* ✨\n\n"
-        "🎙️ /speech [text]\n"
-        "🎮 /truth /dare /roast /riddle\n"
-        "📥 /reel [URL]\n"
-        "😂 /meme\n"
-        "👑 Owner: @ash_yv"
-    )
+async def start(client, message: Message):
+    await message.reply_text("✨ Namaste! …")
 
 @app.on_message(filters.command("speech"))
-async def speech(_, m: Message):
-    if len(m.command) < 2:
-        await m.reply_text("Usage: /speech Hello")
-        return
-    
-    voice = await text_to_voice(" ".join(m.command[1:]))
-    if voice:
-        await m.reply_voice(voice)
-        os.remove(voice)
+async def speech(client, msg: Message):
+    if len(msg.command) < 2:
+        return await msg.reply_text("Usage: /speech [text]")
+    txt = " ".join(msg.command[1:])
+    vf = await text_to_voice(txt)
+    await msg.reply_voice(vf, caption=txt)
+    os.remove(vf)
 
-@app.on_message(filters.command("meme"))
-async def meme(_, m: Message):
-    await m.reply_photo(await get_meme())
+# ... keep building rest of commands similarly: /truth, /dare, /roast, /riddle, /answer, /reel ...
 
-# [Add other commands following the same pattern]
+@app.on_message(filters.text & (filters.mentioned | filters.private))
+async def chat(client, msg: Message):
+    if msg.text.startswith("/"): return
+    reply = await generate_response(msg.text)
+    vf = None
+    if random.random() < 0.3:
+        vf = await text_to_voice(reply)
+        await msg.reply_voice(vf, caption=reply)
+        os.remove(vf)
+    else:
+        await msg.reply_text(reply)
 
+# ===== RUN ===== #
 if __name__ == "__main__":
-    print("✅ BOT STARTED")
+    print("CINDERELLA AI LIVE")
     app.run()
