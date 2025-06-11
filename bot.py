@@ -32,7 +32,51 @@ app = Client(
     in_memory=True  # Critical for Render
 )
 
-# ... [Keep all your existing command handlers unchanged] ...
+# ===== GAME DATABASES ===== #
+TRUTHS = [
+    "What's your most embarrassing Google search?",
+    "Have you ever pretended to like a gift?",
+    "What's the weirdest thing you've done for money?"
+]
+
+DARES = [
+    "Send your most cringe childhood photo!",
+    "Do 10 pushups right now!",
+    "Sing a Bollywood song in voice chat!"
+]
+
+ROASTS = [
+    "You're like a broken pencil... pointless!",
+    "Is your WiFi weak or are you just boring?",
+    "Even Siri ignores your questions!"
+]
+
+RIDDLES = {
+    "I speak without a mouth": "echo",
+    "The more you take, the more you leave behind": "footsteps"
+}
+
+# ===== CORE FUNCTIONS ===== #
+async def text_to_voice(text: str) -> str:
+    try:
+        if eleven_client:
+            audio = eleven_client.generate(
+                text=text,
+                voice="Rachel",
+                model="eleven_monolingual_v2"
+            )
+            filename = f"voice_{random.randint(1000,9999)}.mp3"
+            with open(filename, "wb") as f:
+                f.write(audio)
+            return filename
+    except Exception as e:
+        print(f"ElevenLabs error: {e}, using gTTS")
+    tts = gTTS(text=text, lang='hi', slow=False)
+    filename = f"voice_{random.randint(1000,9999)}.mp3"
+    tts.save(filename)
+    return filename
+
+# ... [Keep ALL your original command handlers unchanged] ...
 
 if __name__ == "__main__":
     print("""
