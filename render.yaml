@@ -1,11 +1,12 @@
+
 services:
   - type: web
-    name: zeril-bot
+    name: zeril-telegram-bot
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
+    buildCommand: "pip install --no-cache-dir -r requirements.txt"
+    startCommand: "python main.py
     envVars:
-      - key: BOT_TOKEN
-        value: 8092570026:AAHB4aPVGF4frTsm3SXPk_Xv3mLIcg6KHYM
-      - key: HF_TOKEN
-        value: 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
+      - key: 8092570026:AAHB4aPVGF4frTsm3SXPk_Xv3mLIcg6KHYM
+        sync: false 
+      - key: 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
+        sync: false 
