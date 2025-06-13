@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: zeril-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    plan: free
+    autoDeploy: false
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: HUGGINGFACE_TOKEN
+        sync: false
