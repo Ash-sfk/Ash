@@ -1,32 +1,15 @@
-FROM python:3.9-slim
+# Use a lightweight Python base image
+FROM python:3.9-slim-buster
 
-# Set working directory
+# Set the working directory in the container
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements first for better caching
+# Copy the requirements file and install dependencies
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy the rest of your application code
 COPY . .
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV TRANSFORMERS_CACHE=/app/cache
-
-# Create cache directory
-RUN mkdir -p /app/cache
-
-# Expose port (Render expects this)
-EXPOSE 10000
-
-# Run the bot
+# Command to run the application
 CMD ["python", "main.py"]
