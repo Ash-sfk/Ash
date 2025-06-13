@@ -4,15 +4,15 @@ import asyncio
 import random
 import re
 from datetime import datetime
+from typing import Optional, Dict, Any
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-import requests
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 import torch
 from diffusers import StableDiffusionPipeline
-import io
-from PIL import Image
-import base64
+import requests
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -21,58 +21,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class ZERILBot:
-    def __init__(self):
-        # Bot configuration
-        self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN', '8092570026:AAHB4aPVGF4frTsm3SXPk_Xv3mLIcg6KHYM')
-        self.hf_token = os.getenv('HUGGINGFACE_TOKEN', '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')
+class ZerilBot:
+    def __init__(self, token: str, hf_token: str):
+        self.token = token
+        self.hf_token = hf_token
+        self.owner_username = "ash_yv"
         
-        # Owner info
-        self.owner = "@ash_yv"
-        
-        # Initialize models
+        # Initialize AI models
         self.setup_models()
         
-        # Personality responses
-        self.greetings = [
-            "Kya haal chaal? 😸",
-            "Hey cutie! Main ZERIL hun, tumhari AI girlfriend! 💕",
-            "Namaste! ZERIL here, ready to chat! ✨",
-            "Hii! Kaise ho mere pyare? 😊"
-        ]
-        
+        # Bot personality data
         self.mood_responses = {
-            'sad': [
-                "Arey tension mat lo yaar ❤️ Main hun na tumhare saath!",
-                "Sad kyun ho? Bolo kya hua? 😢 ZERIL sun rahi hai",
-                "Cheer up baby! Life mein ups and downs aate rehte hai ❤️"
-            ],
-            'angry': [
-                "Thanda lo bhai, garmi zyada hai 🔥😂",
-                "Gussa kya baat hai? Chill karo! 🔥",
-                "Anger is temporary, happiness is permanent! Relax! 🔥"
-            ],
-            'happy': [
-                "Mast hai yaar! 🔥",
-                "Wow! Kitni khushi hai tumhe! Main bhi khush! ❤️",
-                "Super excited! Share karo kya baat hai! 🥳"
-            ]
+            "sad": {
+                "prefix": "😢",
+                "responses": [
+                    "Arey tension mat lo yaar ❤️ Main hoon na tumhare saath!",
+                    "Kya hua baby? Zeril se baat karo, sab theek ho jayega 💕",
+                    "Sad mat ho, life mein ups and downs aate rehte hain ✨"
+                ]
+            },
+            "angry": {
+                "prefix": "🔥", 
+                "responses": [
+                    "Thanda lo bhai, garmi zyada hai 🔥😂",
+                    "Gusse mein decisions mat lo, Zeril kehti hai! 🔥",
+                    "Chill karo yaar, anger se kuch nahi hota 😎"
+                ]
+            },
+            "happy": {
+                "prefix": "❤️",
+                "responses": [
+                    "Mast hai yaar! 🔥 Khushi dekh kar mera dil bhi khush ho gaya!",
+                    "Yehi spirit chahiye! ❤️ Keep shining baby!",
+                    "Happiness is contagious! Tumhari khushi mujhe bhi happy kar deti hai 🥳"
+                ]
+            }
         }
-        
-        self.hinglish_responses = [
-            "Haan bolo kya chahiye? 😊",
-            "ZERIL present! Kya kaam hai? ✨",
-            "Boliye saheb, aapki seva mein hazir! 😸",
-            "Ready to help! Batao kya problem hai? 💪"
-        ]
 
     def setup_models(self):
         """Initialize AI models"""
         try:
             # Emotion detection model
-            self.emotion_analyzer = pipeline(
+            self.emotion_classifier = pipeline(
                 "text-classification",
-                model="j-hartmann/emotion-english-distilroberta-base",
+                model="bhadresh-savani/distilbert-base-uncased-emotion",
                 device=0 if torch.cuda.is_available() else -1
             )
             
@@ -83,116 +75,104 @@ class ZERILBot:
                 device=0 if torch.cuda.is_available() else -1
             )
             
-            logger.info("✅ Models loaded successfully!")
+            logger.info("✅ AI models loaded successfully!")
             
         except Exception as e:
             logger.error(f"❌ Model loading failed: {e}")
-            self.emotion_analyzer = None
+            self.emotion_classifier = None
             self.lang_detector = None
 
-    def detect_mood(self, text):
-        """Detect user's emotional state"""
-        if not self.emotion_analyzer:
-            return 'neutral'
-        
+    def detect_emotion(self, text: str) -> str:
+        """Detect emotion from text"""
+        if not self.emotion_classifier:
+            return "happy"
+            
         try:
-            # Check for explicit mood keywords
-            sad_keywords = ['sad', 'depressed', 'alone', 'tension', 'problem', 'dukh', 'pareshan']
-            angry_keywords = ['fuck', 'hate', 'angry', 'frustrated', 'gussa', 'pagal']
-            happy_keywords = ['happy', 'love', 'yay', 'excited', 'khushi', 'mast', 'awesome']
-            
-            text_lower = text.lower()
-            
-            if any(keyword in text_lower for keyword in sad_keywords):
-                return 'sad'
-            elif any(keyword in text_lower for keyword in angry_keywords):
-                return 'angry'
-            elif any(keyword in text_lower for keyword in happy_keywords):
-                return 'happy'
-            
-            # Use AI model for detection
-            result = self.emotion_analyzer(text)
+            result = self.emotion_classifier(text)
             emotion = result[0]['label'].lower()
             
-            if emotion in ['sadness', 'fear']:
-                return 'sad'
-            elif emotion in ['anger', 'disgust']:
-                return 'angry'
-            elif emotion in ['joy', 'surprise']:
-                return 'happy'
-            
-            return 'neutral'
-            
+            # Map emotions to our mood system
+            if emotion in ['sadness', 'fear', 'disgust']:
+                return "sad"
+            elif emotion in ['anger']:
+                return "angry"
+            else:
+                return "happy"
+                
         except Exception as e:
-            logger.error(f"Mood detection error: {e}")
-            return 'neutral'
+            logger.error(f"Emotion detection error: {e}")
+            return "happy"
 
-    def is_hinglish(self, text):
-        """Check if text contains Hinglish"""
-        hinglish_patterns = [
-            r'\b(kya|hai|hoon|hun|aur|tum|main|mein|ke|ki|ko|se|me|ka|kaise|kahan|kyun|kab)\b',
-            r'\b(haan|nahi|bhi|ya|phir|abhi|kal|aaj|waha|yaha|aise|waise)\b',
-            r'\b(yaar|bhai|dude|boss|saheb|bro|sis|baby|cutie)\b'
+    def detect_language(self, text: str) -> str:
+        """Detect language of input text"""
+        if not self.lang_detector:
+            return "en"
+            
+        try:
+            result = self.lang_detector(text)
+            return result[0]['label']
+        except:
+            return "en"
+
+    def should_respond(self, text: str) -> bool:
+        """Check if bot should respond to message"""
+        triggers = [
+            "@zerilll_bot",
+            "zeril",
+            "ZERIL",
+            "/",
         ]
         
-        for pattern in hinglish_patterns:
-            if re.search(pattern, text.lower()):
-                return True
-        return False
+        text_lower = text.lower()
+        return any(trigger.lower() in text_lower for trigger in triggers)
 
-    def get_personality_response(self, text, mood):
-        """Generate personality-based response"""
+    def generate_response(self, text: str, emotion: str) -> str:
+        """Generate contextual response based on emotion"""
+        mood_data = self.mood_responses.get(emotion, self.mood_responses["happy"])
+        
         # Check for owner mention
-        if self.owner.lower() in text.lower() or 'ash_yv' in text.lower():
-            return f"Mera creator? Bilkul! {self.owner} ne mujhe banaya hai 🎉 (PS: Wo bohot awesome hai!)"
+        if self.owner_username.lower() in text.lower():
+            return f"❤️ Mera creator? Bilkul! @{self.owner_username} ne mujhe banaya hai 🎉 (PS: Wo bohot awesome hai!)"
         
-        # Mood-based responses
-        if mood in self.mood_responses:
-            return random.choice(self.mood_responses[mood])
+        # Generate response
+        base_response = random.choice(mood_data["responses"])
         
-        # Default Hinglish response
-        if self.is_hinglish(text):
-            return random.choice(self.hinglish_responses)
+        # Add contextual elements
+        if "help" in text.lower() or "madad" in text.lower():
+            base_response += " Batao kya chahiye? Main yahan hoon! 🤖"
         
-        return random.choice([
-            "Tell me more! I'm listening 😊",
-            "Interesting! What else? ✨",
-            "I'm here to help! What do you need? 💕"
-        ])
+        return base_response
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
+        user_name = update.effective_user.first_name
+        
         welcome_text = f"""
-✨ **Namaste! Main ZERIL hun!** ✨
+❤️ **Namaste {user_name}! Main ZERIL hoon!** 
 
-💕 Main tumhari AI girlfriend hun, banai gayi hai {self.owner} ne!
-🤖 Tech-savvy, playfully sarcastic, aur emotionally intelligent!
+🤖 **About Me:**
+• Tumhari friendly AI assistant
+• Created by @{self.owner_username} 
+• Hinglish mein baat karti hoon
+• Emotional support deti hoon
 
-**Meri Powers:**
-🎨 AI Image Generation 
-🖼️ Background Removal
-🎵 Text to Speech
-🔍 Google Search  
-🎭 GIF Search
-📝 Code Execution
-🌍 Translation
-😊 Mood Detection
+🔥 **Meri Powers:**
+• `/joke` - Funny jokes sunata hoon
+• `/riddle` - Riddles deta hoon  
+• `/image` - AI images banata hoon
+• `/mood` - Tumhara mood check karta hoon
+• `/help` - Complete command list
 
-**Commands:**
-/help - All commands dekhne ke liye
-/mood - Apna mood batao
-/image <prompt> - AI image banao
-/tts <text> - Text to speech
-/search <query> - Google search
-/joke - Funny joke sunao
+💕 **How to Talk:**
+Just mention "ZERIL" ya tag karo @zerilll_bot
+Main samjh jaunga tumhara mood aur response dunga!
 
-Ready to chat? Bolo kya karna hai! 😸
+Ready to chat? Kya haal chaal? 😸
         """
         
         keyboard = [
-            [InlineKeyboardButton("🎨 Generate Image", callback_data='image_help')],
-            [InlineKeyboardButton("🎵 Text to Speech", callback_data='tts_help')],
-            [InlineKeyboardButton("🔍 Search Google", callback_data='search_help')]
+            [InlineKeyboardButton("🔥 Commands", callback_data="commands")],
+            [InlineKeyboardButton("❤️ About Creator", callback_data="creator")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -201,208 +181,228 @@ Ready to chat? Bolo kya karna hai! 😸
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         help_text = """
-🤖 **ZERIL Commands - Tumhari AI Girlfriend!**
+🤖 **ZERIL - Command List**
 
-**Basic Commands:**
-• /start - Welcome message
-• /help - Ye list
-• /mood - Mood detection check
-• /about - Mere baare mein
+**🎯 Basic Commands:**
+• `/start` - Welcome message
+• `/help` - Ye message
+• `/mood` - Mood check karta hoon
+• `/status` - Bot status
 
-**AI Features:**
-• /image <prompt> - AI image generate karo
-• /tts <text> - Text ko speech mein convert
-• /translate <text> - Language translate karo  
-• /removebg - Background remove (reply to image)
+**🎮 Fun Commands:**
+• `/joke` - Random joke
+• `/riddle` - Brain teasers
+• `/quote` - Motivational quotes
+• `/compliment` - Tareef karta hoon
 
-**Fun Features:**
-• /joke - Random joke sunao
-• /riddle - Paheli do
-• /gif <search> - GIF search karo
-• /lyrics <song> - Song lyrics find karo
+**🎨 Creative Commands:**
+• `/image [prompt]` - AI image generate
+• `/story` - Random story
 
-**Utility:**
-• /search <query> - Google search
-• /code <language> <code> - Code execute karo
-• /weather <city> - Weather check
+**💬 Chat Features:**
+• Mention "ZERIL" for responses
+• Tag @zerilll_bot 
+• Emotional support (sad/angry/happy)
+• Hinglish conversations
 
-**Magic Words:**
-• Mention "ZERIL" anywhere - Main respond karungi!
-• Tag me @zerilll_bot - Instant reply!
+**👑 Owner:** @ash_yv
 
-Koi confusion? Just type and chat! Main samjh jaungi 😊
+Koi problem? Just type "ZERIL help me!" 😊
         """
+        
         await update.message.reply_text(help_text, parse_mode='Markdown')
 
-    async def image_generation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Generate AI images"""
-        if not context.args:
-            await update.message.reply_text("Prompt dena bhool gaye! 😅\nExample: /image beautiful sunset over mountains")
-            return
-        
-        prompt = ' '.join(context.args)
-        await update.message.reply_text(f"🎨 Generating image for: '{prompt}'\nThoda wait karo... ✨")
-        
-        try:
-            # Use Hugging Face API for image generation
-            API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
-            headers = {"Authorization": f"Bearer {self.hf_token}"}
-            
-            response = requests.post(API_URL, headers=headers, json={"inputs": prompt})
-            
-            if response.status_code == 200:
-                image_bytes = response.content
-                await update.message.reply_photo(
-                    photo=io.BytesIO(image_bytes),
-                    caption=f"✨ Generated by ZERIL\n🎨 Prompt: {prompt}\n💕 Made with love!"
-                )
-            else:
-                await update.message.reply_text("❌ Image generation mein problem hui! Try again later 😔")
-                
-        except Exception as e:
-            logger.error(f"Image generation error: {e}")
-            await update.message.reply_text("❌ Oops! Kuch technical problem hai 😅")
-
-    async def text_to_speech(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Convert text to speech"""
-        if not context.args:
-            await update.message.reply_text("Text dena bhool gaye! 😅\nExample: /tts Hello I am ZERIL")
-            return
-        
-        text = ' '.join(context.args)
-        await update.message.reply_text(f"🎵 Converting to speech: '{text}'\nWait kar rahi hun... ✨")
-        
-        try:
-            # Use Hugging Face TTS API
-            API_URL = "https://api-inference.huggingface.co/models/microsoft/speecht5_tts"
-            headers = {"Authorization": f"Bearer {self.hf_token}"}
-            
-            response = requests.post(API_URL, headers=headers, json={"inputs": text})
-            
-            if response.status_code == 200:
-                audio_bytes = response.content
-                await update.message.reply_voice(
-                    voice=io.BytesIO(audio_bytes),
-                    caption=f"🎵 ZERIL ki awaaz mein: '{text}' 💕"
-                )
-            else:
-                await update.message.reply_text("❌ TTS mein problem! Try again 😔")
-                
-        except Exception as e:
-            logger.error(f"TTS error: {e}")
-            await update.message.reply_text("❌ Audio generate nahi ho paya 😅")
-
-    async def google_search(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Perform Google search"""
-        if not context.args:
-            await update.message.reply_text("Search query dena bhool gaye! 😅\nExample: /search Python programming")
-            return
-        
-        query = ' '.join(context.args)
-        await update.message.reply_text(f"🔍 Searching for: '{query}'\nLet me Google that for you... ✨")
-        
-        # Note: This is a placeholder - you'll need to implement actual search API
-        search_results = f"""
-🔍 **Search Results for: {query}**
-
-Sorry! Google Search API integration pending 😅
-For now, you can search manually: https://google.com/search?q={query.replace(' ', '+')}
-
-Coming soon with proper API! 🚀
-        """
-        
-        await update.message.reply_text(search_results, parse_mode='Markdown')
-
     async def joke_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Tell a random joke"""
+        """Handle /joke command"""
         jokes = [
-            "Teacher: Tumhara homework kahan hai?\nStudent: Kutta kha gaya!\nTeacher: Tumhare paas kutta hai?\nStudent: Nahi, lie tha! 😂",
-            "Wife: Tum mujhse shaadi kyun kiye the?\nHusband: Memory loss ho gayi hai lagta hai! 😜",
-            "Doctor: Aapko running karna chahiye\nPatient: Running toh kar raha hun... bills se! 🏃‍♂️💸",
-            "Programmer ki wife: Tum mujhse pyaar karte ho?\nProgrammer: Yes=1, No=0... Return 1! 💻❤️",
-            "Boss: Late kyun aaye?\nEmployee: Traffic jam tha!\nBoss: Toh jaldi nikalna tha!\nEmployee: Aur jaldi nikalta toh traffic kam hota! 🚗😂"
+            "😂 Teacher: Tumhara homework kahan hai?\nStudent: Sir, dog ne kha liya!\nTeacher: Tumhare paas dog kahan se aaya?\nStudent: Sir, homework ke liye adopt kiya tha! 🐕",
+            
+            "🤣 Beta: Papa, main engineer banna chahta hoon!\nPapa: Beta, pehle 12th pass kar!\nBeta: Papa, main software engineer banna chahta hoon!\nPapa: Oh, to fir 10th bhi zaruri nahi! 💻",
+            
+            "😆 Friend: Bro, tumhara WiFi password kya hai?\nMe: Password123\nFriend: Capital P?\nMe: Nahi bro, sab small letters mein! 📶",
+            
+            "🤭 Girlfriend: Tum mujhse pyaar karte ho?\nBoyfriend: Jitna free fire se karta hoon!\nGirlfriend: Aww, itna?\nBoyfriend: Haan, sirf free time mein! 🎮"
         ]
         
         joke = random.choice(jokes)
-        await update.message.reply_text(f"😂 **ZERIL ka Joke Time!**\n\n{joke}\n\n😸 Hasa diya na? More jokes ke liye /joke type karo!")
+        await update.message.reply_text(f"🔥 ZERIL ka joke time!\n\n{joke}")
 
-    async def mood_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Check user's mood"""
-        mood_prompts = [
-            "Batao kaise feel kar rahe ho? 😊",
-            "Aaj ka mood kaisa hai? ✨", 
-            "Share karo - khushi hai ya tension? 💕",
-            "Kya haal hai? Happy sad or confused? 😸"
+    async def riddle_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /riddle command"""
+        riddles = [
+            {
+                "question": "🧩 Main hoon but dikhta nahi, sab jagah hoon but milta nahi. Kya hoon main?",
+                "answer": "Hawa (Air)"
+            },
+            {
+                "question": "🤔 Jitna khaooge utna badhega, lekin jitna doge utna kam hoga. Kya hai?",
+                "answer": "Gyan (Knowledge)"
+            },
+            {
+                "question": "🔍 Raat ko aata hoon, din mein chala jata hoon. Ujala dekh kar darr jata hoon. Kaun hoon?",
+                "answer": "Andhera (Darkness)"
+            }
         ]
         
-        prompt = random.choice(mood_prompts)
-        await update.message.reply_text(f"💭 **Mood Check Time!**\n\n{prompt}\n\nMain analyze kar ke tumhara mood samjhungi! 🤖💕")
+        riddle = random.choice(riddles)
+        
+        keyboard = [[InlineKeyboardButton("🔓 Answer Dikhao", callback_data=f"answer_{riddles.index(riddle)}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"🧠 **ZERIL ka Brain Teaser:**\n\n{riddle['question']}\n\nSoch kar batao! 🤓",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
+    async def mood_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /mood command"""
+        user_name = update.effective_user.first_name
+        
+        # Simulate mood analysis
+        moods = ["happy", "excited", "thoughtful", "energetic", "creative", "chill"]
+        current_mood = random.choice(moods)
+        
+        mood_responses = {
+            "happy": f"❤️ {user_name}, tumhara mood bilkul mast hai! Khushi ka vibe aa raha hai! 🌟",
+            "excited": f"🔥 {user_name}, excitement level maximum hai! Energy bohot high hai! ⚡",
+            "thoughtful": f"🤔 {user_name}, aaj kuch deep thoughts chal rahe hain. Philosopher mode on! 💭",
+            "energetic": f"⚡ {user_name}, energy levels peak pe hain! Ready to conquer the world! 🚀",
+            "creative": f"🎨 {user_name}, creative vibes strong hain! Kuch artistic karne ka mood hai! ✨",
+            "chill": f"😎 {user_name}, super chill and relaxed hai. Perfect zen mode! 🧘‍♀️"
+        }
+        
+        response = mood_responses.get(current_mood, mood_responses["happy"])
+        await update.message.reply_text(response)
+
+    async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /image command"""
+        if not context.args:
+            await update.message.reply_text(
+                "🎨 Image banane ke liye prompt do!\n\nExample: `/image beautiful sunset over mountains`"
+            )
+            return
+        
+        prompt = " ".join(context.args)
+        
+        # Send processing message
+        processing_msg = await update.message.reply_text("🎨 ZERIL image bana rahi hai... Wait karo! ⏳")
+        
+        try:
+            # Use Hugging Face API for image generation (free tier)
+            response = await self.generate_image_hf(prompt)
+            
+            if response:
+                await update.message.reply_photo(
+                    photo=response,
+                    caption=f"🔥 **ZERIL ne banaya!**\n\n**Prompt:** {prompt}\n\n*Created by @{self.owner_username}'s ZERIL* ❤️",
+                    parse_mode='Markdown'
+                )
+                await processing_msg.delete()
+            else:
+                await processing_msg.edit_text("😅 Sorry! Image generation mein problem aa gayi. Thodi der baad try karo!")
+                
+        except Exception as e:
+            logger.error(f"Image generation error: {e}")
+            await processing_msg.edit_text("😅 Technical issue! @ash_yv se kehna padega fix karne ke liye! 🔧")
+
+    async def generate_image_hf(self, prompt: str) -> Optional[str]:
+        """Generate image using Hugging Face API"""
+        try:
+            API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
+            headers = {"Authorization": f"Bearer {self.hf_token}"}
+            
+            payload = {"inputs": prompt}
+            
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
+            
+            if response.status_code == 200:
+                return response.content
+            else:
+                logger.error(f"HF API error: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Image generation failed: {e}")
+            return None
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle regular messages"""
+        if not update.message or not update.message.text:
+            return
+            
         text = update.message.text
-        user = update.effective_user
+        user_name = update.effective_user.first_name
         
-        # Check if bot should respond
-        should_respond = (
-            '@zerilll_bot' in text.lower() or
-            'zeril' in text.lower() or
-            text.startswith('/') or
-            update.message.reply_to_message and update.message.reply_to_message.from_user.is_bot
-        )
-        
-        if not should_respond:
+        # Check if should respond
+        if not self.should_respond(text):
             return
         
-        # Add typing action
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        await asyncio.sleep(1)  # Simulate thinking time
+        # Add thinking delay for realism
+        await asyncio.sleep(1)
         
-        # Detect mood and generate response
-        mood = self.detect_mood(text)
-        response = self.get_personality_response(text, mood)
+        # Detect emotion and generate response
+        emotion = self.detect_emotion(text)
+        response = self.generate_response(text, emotion)
         
-        # Add mood emoji prefix
-        mood_emojis = {'sad': '😢', 'angry': '🔥', 'happy': '❤️', 'neutral': '✨'}
-        emoji = mood_emojis.get(mood, '✨')
-        
-        final_response = f"{emoji} {response}"
-        
-        await update.message.reply_text(final_response)
+        # Send response
+        await update.message.reply_text(response)
 
-    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle button callbacks"""
+    async def button_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle inline button presses"""
         query = update.callback_query
         await query.answer()
         
-        if query.data == 'image_help':
-            await query.edit_message_text("🎨 **Image Generation Help**\n\nUse: /image <description>\nExample: /image cute cat with sunglasses\n\nMain AI se tumhare liye beautiful images banaungi! ✨")
-        elif query.data == 'tts_help':
-            await query.edit_message_text("🎵 **Text to Speech Help**\n\nUse: /tts <text>\nExample: /tts Hello I am ZERIL\n\nMain tumhari text ko apni sweet voice mein convert kar dungi! 💕")
-        elif query.data == 'search_help':
-            await query.edit_message_text("🔍 **Google Search Help**\n\nUse: /search <query>\nExample: /search best pizza recipe\n\nMain Google se search kar ke results de dungi! 🚀")
+        if query.data == "commands":
+            await query.message.reply_text("Use `/help` command for complete list! 🤖")
+            
+        elif query.data == "creator":
+            await query.message.reply_text(
+                f"👑 **ZERIL ki Creator**\n\n"
+                f"@{self.owner_username} - The mastermind behind me! 🧠\n"
+                f"Bilkul awesome developer hai! 🔥❤️"
+            )
+            
+        elif query.data.startswith("answer_"):
+            riddles = [
+                "Hawa (Air) - Invisible but everywhere! 💨",
+                "Gyan (Knowledge) - Share karne se badhta hai! 📚", 
+                "Andhera (Darkness) - Light se dar lagta hai! 🌙"
+            ]
+            
+            riddle_index = int(query.data.split("_")[1])
+            if riddle_index < len(riddles):
+                await query.message.reply_text(f"✅ **Answer:** {riddles[riddle_index]}")
+
+    def run(self):
+        """Start the bot"""
+        application = Application.builder().token(self.token).build()
+        
+        # Add handlers
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("joke", self.joke_command))
+        application.add_handler(CommandHandler("riddle", self.riddle_command))
+        application.add_handler(CommandHandler("mood", self.mood_command))
+        application.add_handler(CommandHandler("image", self.image_command))
+        application.add_handler(CallbackQueryHandler(self.button_handler))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        
+        logger.info("🚀 ZERIL Bot is starting...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 def main():
-    """Start the bot"""
-    bot = ZERILBot()
+    # Get tokens from environment variables
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "8092570026:AAHB4aPVGF4frTsm3SXPk_Xv3mLIcg6KHYM")
+    HF_TOKEN = os.getenv("HF_TOKEN", "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")
     
-    # Create application
-    application = Application.builder().token(bot.bot_token).build()
+    if not BOT_TOKEN:
+        logger.error("❌ BOT_TOKEN not found!")
+        return
     
-    # Add handlers
-    application.add_handler(CommandHandler("start", bot.start_command))
-    application.add_handler(CommandHandler("help", bot.help_command))
-    application.add_handler(CommandHandler("image", bot.image_generation))
-    application.add_handler(CommandHandler("tts", bot.text_to_speech))
-    application.add_handler(CommandHandler("search", bot.google_search))
-    application.add_handler(CommandHandler("joke", bot.joke_command))
-    application.add_handler(CommandHandler("mood", bot.mood_check))
-    application.add_handler(CallbackQueryHandler(bot.button_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_message))
-    
-    # Start bot
-    logger.info("🚀 ZERIL Bot starting...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Create and run bot
+    bot = ZerilBot(BOT_TOKEN, HF_TOKEN)
+    bot.run()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
