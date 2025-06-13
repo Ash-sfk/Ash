@@ -1,15 +1,24 @@
 FROM python:3.11-slim
-WORKDIR /app
+
+# Create non-root user first
+RUN useradd --create-home --shell /bin/bash botuser
+
+# Set working directory with proper permissions
+WORKDIR /home/botuser/app
+RUN chown botuser:botuser /home/botuser/app
 
 # Install dependencies as root
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Switch to non-root user EARLIER
-RUN useradd --create-home --uid 1000 botuser
+# Copy app as non-root user
+USER botuser
 COPY --chown=botuser:botuser . .
 
-USER botuser  # Switch before exposing ports
+# Use Render's PORT variable
+ENV PORT=10000
+EXPOSE $PORT
 
-EXPOSE 10000
+# Run the bot
 CMD ["python", "main.py"]
