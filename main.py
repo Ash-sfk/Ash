@@ -3,13 +3,13 @@ import asyncio
 import aiohttp
 import json
 import logging
-from dotenv import load_dotenv  # Added for proper env loading
+from dotenv import load_dotenv
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 
 # Load environment variables FIRST
-load_dotenv('.env')  # Explicitly load .env file
+load_dotenv('.env')  # Explicitly load .env file for local development
 
 # Configure logging with security precautions
 logging.basicConfig(
@@ -24,20 +24,31 @@ os.environ['PYTHONWARNINGS'] = "ignore"
 
 class LLMZERILBot:
     def __init__(self):
-        # Get tokens with proper validation
-        self.bot_token = os.getenv('BOT_TOKEN')
-        self.hf_token = os.getenv('HUGGINGFACE_TOKEN')
+        # CRITICAL FIX: Load tokens using Render's secret file system
+        try:
+            # Attempt to load from Render's secret files
+            with open('/etc/secrets/BOT_TOKEN', 'r') as f:
+                self.bot_token = f.read().strip()
+            with open('/etc/secrets/HUGGINGFACE_TOKEN', 'r') as f:
+                self.hf_token = f.read().strip()
+            logger.info("✅ Tokens loaded from Render secrets")
+        except FileNotFoundError:
+            # Fallback to environment variables for local development
+            self.bot_token = os.getenv('BOT_TOKEN')
+            self.hf_token = os.getenv('HUGGINGFACE_TOKEN')
+            logger.info("✅ Tokens loaded from environment variables")
         
         # Validate tokens
         if not self.bot_token:
-            logger.error("❌ BOT_TOKEN not set in environment!")
+            logger.error("❌ BOT_TOKEN not found! Check Render secrets configuration")
+            raise RuntimeError("BOT_TOKEN not set! Please configure in Render secrets")
         if not self.hf_token:
             logger.warning("⚠️ HUGGINGFACE_TOKEN not set - some features may fail")
         
         self.owner_username = "ash_yv"
         self.owner_name = "Ash"
         
-        # Updated models with better free-tier options
+        # Optimized models for free tier
         self.models = {
             "chat": "HuggingFaceH4/zephyr-7b-beta",  # Better quality responses
             "sentiment": "cardiffnlp/twitter-roberta-base-sentiment-latest",
@@ -46,7 +57,7 @@ class LLMZERILBot:
             "translate": "Helsinki-NLP/opus-mt-hi-en"
         }
         
-        # ZERIL's personality prompt (unchanged)
+        # ZERIL's personality prompt
         self.system_prompt = """You are ZERIL, a fun Hinglish-speaking Telegram bot. Your personality:
 
 LANGUAGE: Always reply in Hinglish (Hindi words written in English script)
@@ -91,12 +102,12 @@ Always stay in character as ZERIL!"""
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers, json=payload, timeout=60) as response:  # Increased timeout
+                async with session.post(url, headers=headers, json=payload, timeout=60) as response:
                     if response.status == 200:
                         return await response.json()
                     elif response.status == 503:
                         # Model loading - wait longer
-                        await asyncio.sleep(30)  # Increased sleep time
+                        await asyncio.sleep(30)
                         return await self.hf_inference(model_name, payload, task_type)
                     else:
                         error_text = await response.text()
@@ -145,15 +156,15 @@ Always stay in character as ZERIL!"""
         payload = {
             "inputs": context_prompt,
             "parameters": {
-                "max_new_tokens": 120,  # Slightly more tokens
-                "temperature": 0.85,    # More creative
+                "max_new_tokens": 120,
+                "temperature": 0.85,
                 "do_sample": True,
                 "top_p": 0.92,
                 "repetition_penalty": 1.15
             }
         }
         
-        # Use only one model to simplify
+        # Use primary model
         result = await self.hf_inference(self.models["chat"], payload)
         
         if result and isinstance(result, list) and len(result) > 0:
@@ -166,7 +177,7 @@ Always stay in character as ZERIL!"""
                 response = generated_text.replace(context_prompt, "").strip()
             
             # Clean up response
-            response = response.split('\n')[0].strip()  # Take first line
+            response = response.split('\n')[0].strip()
             if response.startswith('"') and response.endswith('"'):
                 response = response[1:-1]
             if len(response) > 200:
@@ -216,7 +227,7 @@ Always stay in character as ZERIL!"""
             return True
         
         # Respond if tagged or name mentioned
-        if "zeril" in text or "@zeril_bot" in text:  # Changed to actual bot username
+        if "zeril" in text or "@zeril_bot" in text:  # Use your actual bot username
             return True
         
         # Respond to commands
@@ -231,7 +242,7 @@ Always stay in character as ZERIL!"""
         is_owner = username == self.owner_username
         
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-        await asyncio.sleep(1.2)  # Reduced sleep time
+        await asyncio.sleep(1.2)
         
         if is_owner:
             welcome_msg = f"🎉 {self.owner_name} sir! Aapka ZERIL ready hai! ❤️\n\n" \
@@ -268,7 +279,7 @@ Always stay in character as ZERIL!"""
         response = await self.generate_llm_response(user_input, user_id, username)
         
         # Add typing delay based on response length
-        delay = min(len(response) * 0.03, 2.0)  # Reduced max delay
+        delay = min(len(response) * 0.03, 2.0)
         await asyncio.sleep(delay)
         
         await update.message.reply_text(response)
@@ -282,8 +293,8 @@ Always stay in character as ZERIL!"""
         payload = {
             "inputs": joke_prompt,
             "parameters": {
-                "max_new_tokens": 100,  # Increased tokens
-                "temperature": 0.95,    # More creative
+                "max_new_tokens": 100,
+                "temperature": 0.95,
                 "do_sample": True
             }
         }
@@ -313,8 +324,8 @@ Always stay in character as ZERIL!"""
         
         prompt = " ".join(context.args)
         
-        # NSFW filter
-        nsfw_words = ['nude', 'naked', 'sexy', 'adult', 'porn', 'nsfw']
+        # Enhanced NSFW filter
+        nsfw_words = ['nude', 'naked', 'sexy', 'adult', 'porn', 'nsfw', 'sex', 'fuck']
         if any(word in prompt.lower() for word in nsfw_words):
             await update.message.reply_text("😳 Arey bhai! Family group hai! Kuch aur try karo 😅")
             return
@@ -329,7 +340,7 @@ Always stay in character as ZERIL!"""
         result = await self.hf_inference(self.models["image"], payload, "image")
         
         if result:
-            # Send actual image (requires implementation)
+            # Send actual image
             await update.message.reply_photo(
                 photo=result, 
                 caption="✨ Image ready! (Note: Free tier limitations apply)"
@@ -337,11 +348,29 @@ Always stay in character as ZERIL!"""
         else:
             await update.message.reply_text("😅 Sorry yaar! Image generation mein problem. Thodi der baad try karo!")
 
+    async def mood_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Analyze sentiment of text"""
+        if not context.args:
+            await update.message.reply_text("📊 Text do sentiment analyze karne ke liye! Example: /mood Aaj mera din bohot acha tha")
+            return
+        
+        text = " ".join(context.args)
+        sentiment = await self.get_sentiment(text)
+        
+        emoji_map = {
+            "positive": "😊",
+            "negative": "😔",
+            "neutral": "😐"
+        }
+        emoji = emoji_map.get(sentiment, "🤔")
+        
+        await update.message.reply_text(f"{emoji} Sentiment: {sentiment.capitalize()}")
+
     def run(self):
         """Run the bot with proper error handling"""
         # Validate tokens with clearer errors
         if not self.bot_token:
-            raise ValueError("❌ BOT_TOKEN not set! Please set it as environment variable")
+            raise ValueError("❌ BOT_TOKEN not set! Please configure in Render secrets")
         
         try:
             application = Application.builder().token(self.bot_token).build()
@@ -350,6 +379,7 @@ Always stay in character as ZERIL!"""
             application.add_handler(CommandHandler("start", self.start_command))
             application.add_handler(CommandHandler("joke", self.joke_command))
             application.add_handler(CommandHandler("img", self.img_command))
+            application.add_handler(CommandHandler("mood", self.mood_command))
             application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
             
             logger.info("🤖 LLM-powered ZERIL starting...")
