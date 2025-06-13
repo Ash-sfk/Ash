@@ -1,13 +1,11 @@
 services:
   - type: web
-    name: zeril-telegram-bot
-    env: docker
-    dockerfilePath: ./Dockerfile
-    plan: free
+    name: zeril-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
         value: 8092570026:AAHB4aPVGF4frTsm3SXPk_Xv3mLIcg6KHYM
-      - key: HF_TOKEN  
+      - key: HF_TOKEN
         value: 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
-      - key: PYTHONUNBUFFERED
-        value: "1"
