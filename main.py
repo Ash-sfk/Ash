@@ -8,9 +8,6 @@ from typing import Optional, Dict, Any
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-import torch
-from diffusers import StableDiffusionPipeline
 import requests
 import json
 
@@ -26,9 +23,6 @@ class ZerilBot:
         self.token = token
         self.hf_token = hf_token
         self.owner_username = "ash_yv"
-        
-        # Initialize AI models
-        self.setup_models()
         
         # Bot personality data
         self.mood_responses = {
@@ -58,61 +52,19 @@ class ZerilBot:
             }
         }
 
-    def setup_models(self):
-        """Initialize AI models"""
-        try:
-            # Emotion detection model
-            self.emotion_classifier = pipeline(
-                "text-classification",
-                model="bhadresh-savani/distilbert-base-uncased-emotion",
-                device=0 if torch.cuda.is_available() else -1
-            )
-            
-            # Language detection
-            self.lang_detector = pipeline(
-                "text-classification",
-                model="papluca/xlm-roberta-base-language-detection",
-                device=0 if torch.cuda.is_available() else -1
-            )
-            
-            logger.info("✅ AI models loaded successfully!")
-            
-        except Exception as e:
-            logger.error(f"❌ Model loading failed: {e}")
-            self.emotion_classifier = None
-            self.lang_detector = None
-
     def detect_emotion(self, text: str) -> str:
-        """Detect emotion from text"""
-        if not self.emotion_classifier:
+        """Simple emotion detection using keywords"""
+        sad_keywords = ['sad', 'dukhi', 'pareshan', 'tension', 'problem', 'cry', 'rona']
+        angry_keywords = ['angry', 'gussa', 'mad', 'pagal', 'irritated', 'hate']
+        
+        text_lower = text.lower()
+        
+        if any(keyword in text_lower for keyword in sad_keywords):
+            return "sad"
+        elif any(keyword in text_lower for keyword in angry_keywords):
+            return "angry"
+        else:
             return "happy"
-            
-        try:
-            result = self.emotion_classifier(text)
-            emotion = result[0]['label'].lower()
-            
-            # Map emotions to our mood system
-            if emotion in ['sadness', 'fear', 'disgust']:
-                return "sad"
-            elif emotion in ['anger']:
-                return "angry"
-            else:
-                return "happy"
-                
-        except Exception as e:
-            logger.error(f"Emotion detection error: {e}")
-            return "happy"
-
-    def detect_language(self, text: str) -> str:
-        """Detect language of input text"""
-        if not self.lang_detector:
-            return "en"
-            
-        try:
-            result = self.lang_detector(text)
-            return result[0]['label']
-        except:
-            return "en"
 
     def should_respond(self, text: str) -> bool:
         """Check if bot should respond to message"""
@@ -289,7 +241,7 @@ Koi problem? Just type "ZERIL help me!" 😊
         processing_msg = await update.message.reply_text("🎨 ZERIL image bana rahi hai... Wait karo! ⏳")
         
         try:
-            # Use Hugging Face API for image generation (free tier)
+            # Use Hugging Face API for image generation
             response = await self.generate_image_hf(prompt)
             
             if response:
@@ -306,7 +258,7 @@ Koi problem? Just type "ZERIL help me!" 😊
             logger.error(f"Image generation error: {e}")
             await processing_msg.edit_text("😅 Technical issue! @ash_yv se kehna padega fix karne ke liye! 🔧")
 
-    async def generate_image_hf(self, prompt: str) -> Optional[str]:
+    async def generate_image_hf(self, prompt: str) -> Optional[bytes]:
         """Generate image using Hugging Face API"""
         try:
             API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
