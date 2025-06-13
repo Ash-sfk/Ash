@@ -1,12 +1,13 @@
-
+# This is a Render Blueprint for your Telegram Bot
 services:
   - type: web
     name: zeril-telegram-bot
     env: python
     buildCommand: "pip install --no-cache-dir -r requirements.txt"
-    startCommand: "python main.py
+    startCommand: "python main.py"
+    # Environment variables for your bot tokens
     envVars:
-      - key: 8092570026:AAHB4aPVGF4frTsm3SXPk_Xv3mLIcg6KHYM
-        sync: false 
-      - key: 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
-        sync: false 
+      - key: BOT_TOKEN  # This is the NAME of the environment variable
+        sync: false     # Keep this as false
+      - key: HF_TOKEN   # This is the NAME of the environment variable
+        sync: false     # Keep this as false
