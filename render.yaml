@@ -1,8 +1,19 @@
 services:
   - type: web
-    name: zeril-bot
+    name: zeril-telegram-bot
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
-    plan: free
-    autoDeploy: false
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: BOT_TOKEN
+        sync: false
+      - key: HUGGING_FACE_TOKEN
+        sync: false
+    autoDeploy: true
+    disk:
+      name: zeril-disk
+      size: 1GB
+      mountPath: /tmp
