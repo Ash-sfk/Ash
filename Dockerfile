@@ -1,5 +1,4 @@
 FROM python:3.11-slim
-
 WORKDIR /app
 
 # Copy requirements first for better caching
@@ -11,8 +10,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the bot code
 COPY . .
 
-# Create a non-root user
-RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
+# Create a non-root user and set permissions
+RUN useradd --create-home --uid 1000 botuser && \
+    chown -R botuser:botuser /app
+
 USER botuser
 
 # Expose port (required by Render)
