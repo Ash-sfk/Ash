@@ -3,48 +3,36 @@ import asyncio
 import aiohttp
 import json
 import logging
+import stat  # Added for permission fixes
 from dotenv import load_dotenv
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 
 # Load environment variables FIRST
-load_dotenv('.env')  # Explicitly load .env file for local development
+load_dotenv('.env')
 
-# Configure logging with security precautions
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
-# Prevent accidental token logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 os.environ['PYTHONWARNINGS'] = "ignore"
 
 class LLMZERILBot:
     def __init__(self):
-        # CRITICAL FIX: Load tokens using Render's secret file system
-        try:
-            # Attempt to load from Render's secret files
-            with open('/etc/secrets/BOT_TOKEN', 'r') as f:
-                self.bot_token = f.read().strip()
-            with open('/etc/secrets/HUGGINGFACE_TOKEN', 'r') as f:
-                self.hf_token = f.read().strip()
-            logger.info("✅ Tokens loaded from Render secrets")
-        except FileNotFoundError:
-            # Fallback to environment variables for local development
-            self.bot_token = os.getenv('BOT_TOKEN')
-            self.hf_token = os.getenv('HUGGINGFACE_TOKEN')
-            logger.info("✅ Tokens loaded from environment variables")
+        # FIXED SECRET LOADING WITH PERMISSION HANDLING
+        self.bot_token = self._load_secret('BOT_TOKEN')
+        self.hf_token = self._load_secret('HUGGINGFACE_TOKEN')
         
-        # Validate tokens
         if not self.bot_token:
-            logger.error("❌ BOT_TOKEN not found! Check Render secrets configuration")
-            raise RuntimeError("BOT_TOKEN not set! Please configure in Render secrets")
+            raise RuntimeError("❌ BOT_TOKEN not configured properly")
         if not self.hf_token:
-            logger.warning("⚠️ HUGGINGFACE_TOKEN not set - some features may fail")
-        
+            logger.warning("⚠️ HUGGINGFACE_TOKEN not set - some features disabled")
+
         self.owner_username = "ash_yv"
         self.owner_name = "Ash"
         
@@ -90,9 +78,29 @@ Always stay in character as ZERIL!"""
         # Conversation memory
         self.conversation_memory = {}
 
+    def _load_secret(self, token_name):
+        """Safe secret loader with permission fixes"""
+        try:
+            # Try Render's secret path first
+            secret_path = f'/etc/secrets/{token_name}'
+            if os.path.exists(secret_path):
+                # Fix permissions if needed
+                try:
+                    os.chmod(secret_path, stat.S_IRUSR | stat.S_IROTH)
+                except Exception as e:
+                    logger.warning(f"Permission fix failed: {e}")
+                
+                with open(secret_path, 'r') as f:
+                    return f.read().strip()
+            
+            # Fallback to environment variables
+            return os.getenv(token_name)
+        except Exception as e:
+            logger.error(f"Failed loading {token_name}: {e}")
+            return None
+
     async def hf_inference(self, model_name, payload, task_type="text-generation"):
         """Make API call to Hugging Face Inference API"""
-        # Check if token is available
         if not self.hf_token:
             logger.error("Hugging Face token not set - skipping API call")
             return None
@@ -106,12 +114,10 @@ Always stay in character as ZERIL!"""
                     if response.status == 200:
                         return await response.json()
                     elif response.status == 503:
-                        # Model loading - wait longer
                         await asyncio.sleep(30)
                         return await self.hf_inference(model_name, payload, task_type)
                     else:
                         error_text = await response.text()
-                        # Redact token in logs
                         error_text = error_text.replace(self.hf_token, "***REDACTED***")
                         logger.error(f"HF API error: {response.status} - {error_text}")
                         return None
@@ -128,27 +134,22 @@ Always stay in character as ZERIL!"""
         result = await self.hf_inference(self.models["sentiment"], payload, "sentiment")
         
         if result and isinstance(result, list) and len(result) > 0:
-            # Get the highest scoring sentiment
             sentiment_scores = result[0]
             if isinstance(sentiment_scores, list):
                 best_sentiment = max(sentiment_scores, key=lambda x: x['score'])
                 return best_sentiment['label'].lower()
-        
         return "neutral"
 
     async def generate_llm_response(self, user_input, user_id, username):
         """Generate response using LLM"""
-        # Check if user is owner
         is_owner = username == self.owner_username
-        
-        # Build context-aware prompt
         context_prompt = self.system_prompt
+        
         if is_owner:
             context_prompt += f"\n\nIMPORTANT: The user messaging you is @{self.owner_username} (Ash) - your creator! Be extra respectful and grateful."
         
-        # Add conversation memory
         if user_id in self.conversation_memory:
-            recent_context = "\n".join(self.conversation_memory[user_id][-4:])  # Last 2 exchanges
+            recent_context = "\n".join(self.conversation_memory[user_id][-4:])
             context_prompt += f"\n\nRecent conversation:\n{recent_context}"
         
         context_prompt += f"\n\nUser: {user_input}\nZERIL:"
@@ -164,32 +165,27 @@ Always stay in character as ZERIL!"""
             }
         }
         
-        # Use primary model
         result = await self.hf_inference(self.models["chat"], payload)
         
         if result and isinstance(result, list) and len(result) > 0:
             generated_text = result[0].get('generated_text', '')
             
-            # Extract only ZERIL's response
             if "ZERIL:" in generated_text:
                 response = generated_text.split("ZERIL:")[-1].strip()
             else:
                 response = generated_text.replace(context_prompt, "").strip()
             
-            # Clean up response
             response = response.split('\n')[0].strip()
             if response.startswith('"') and response.endswith('"'):
                 response = response[1:-1]
             if len(response) > 200:
                 response = response[:200] + "..."
             
-            # Store in memory
             if user_id not in self.conversation_memory:
                 self.conversation_memory[user_id] = []
             self.conversation_memory[user_id].append(f"User: {user_input}")
             self.conversation_memory[user_id].append(f"ZERIL: {response}")
             
-            # Keep only last 10 exchanges
             if len(self.conversation_memory[user_id]) > 20:
                 self.conversation_memory[user_id] = self.conversation_memory[user_id][-20:]
             
@@ -202,7 +198,6 @@ Always stay in character as ZERIL!"""
         if is_owner:
             return f"❤️ {self.owner_name} sir! LLM thoda slow hai, but main yahin hu aapke liye! 🙏"
         
-        # Simple keyword-based fallbacks
         text_lower = user_input.lower()
         
         if any(word in text_lower for word in ['hello', 'hi', 'hey', 'namaste']):
@@ -222,15 +217,12 @@ Always stay in character as ZERIL!"""
         text = update.message.text.lower()
         username = update.effective_user.username
         
-        # Always respond to owner
         if username == self.owner_username:
             return True
         
-        # Respond if tagged or name mentioned
-        if "zeril" in text or "@zeril_bot" in text:  # Use your actual bot username
+        if "zeril" in text or "@zeril_bot" in text:
             return True
         
-        # Respond to commands
         if text.startswith('/'):
             return True
         
@@ -275,10 +267,8 @@ Always stay in character as ZERIL!"""
         
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
         
-        # Generate LLM response
         response = await self.generate_llm_response(user_input, user_id, username)
         
-        # Add typing delay based on response length
         delay = min(len(response) * 0.03, 2.0)
         await asyncio.sleep(delay)
         
@@ -307,7 +297,6 @@ Always stay in character as ZERIL!"""
                 await update.message.reply_text(f"🔥 ZERIL ka joke time!\n\n{joke}")
                 return
         
-        # Fallback jokes
         fallback_jokes = [
             "😂 Programmer ki wife: 'Tumhe sirf coding aati hai!' Programmer: 'if(you love me) {{ marry me; }} else {{ debug karo!}}' 🤣",
             "🤪 Teacher: 'Homework kahan hai?' Student: 'Ma'am, cloud mein save kiya tha, aaj barish nahi hui!' ☁️😅"
@@ -324,7 +313,6 @@ Always stay in character as ZERIL!"""
         
         prompt = " ".join(context.args)
         
-        # Enhanced NSFW filter
         nsfw_words = ['nude', 'naked', 'sexy', 'adult', 'porn', 'nsfw', 'sex', 'fuck']
         if any(word in prompt.lower() for word in nsfw_words):
             await update.message.reply_text("😳 Arey bhai! Family group hai! Kuch aur try karo 😅")
@@ -333,14 +321,12 @@ Always stay in character as ZERIL!"""
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO)
         await update.message.reply_text("🎨 Image generate kar raha hu... Free tier mein time lagta hai! ⏳")
         
-        # Enhanced prompt for better results
         enhanced_prompt = f"high quality, detailed, vibrant colors, {prompt}"
         
         payload = {"inputs": enhanced_prompt}
         result = await self.hf_inference(self.models["image"], payload, "image")
         
         if result:
-            # Send actual image
             await update.message.reply_photo(
                 photo=result, 
                 caption="✨ Image ready! (Note: Free tier limitations apply)"
@@ -368,14 +354,12 @@ Always stay in character as ZERIL!"""
 
     def run(self):
         """Run the bot with proper error handling"""
-        # Validate tokens with clearer errors
         if not self.bot_token:
             raise ValueError("❌ BOT_TOKEN not set! Please configure in Render secrets")
         
         try:
             application = Application.builder().token(self.bot_token).build()
             
-            # Add handlers
             application.add_handler(CommandHandler("start", self.start_command))
             application.add_handler(CommandHandler("joke", self.joke_command))
             application.add_handler(CommandHandler("img", self.img_command))
@@ -385,13 +369,11 @@ Always stay in character as ZERIL!"""
             logger.info("🤖 LLM-powered ZERIL starting...")
             application.run_polling(
                 allowed_updates=Update.ALL_TYPES,
-                close_loop=False,  # Better for Render
-                drop_pending_updates=True  # Avoid processing old messages
+                close_loop=False,
+                drop_pending_updates=True
             )
         except Exception as e:
             logger.exception(f"🔥 Critical bot error: {e}")
-            # Add restart logic if needed
-            # os.execv(sys.executable, ['python'] + sys.argv)
 
 if __name__ == "__main__":
     bot = LLMZERILBot()
